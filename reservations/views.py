@@ -13,6 +13,7 @@ from .serializers import (
 from .services import (
     InvalidTransition,
     ReservationConflict,
+    ReservationDurationExceeded,
     ReservationOwnershipError,
     SpaceUnavailable,
     approve_reservation,
@@ -58,6 +59,11 @@ class ReservationViewSet(
                 {'detail': str(error)},
                 status=status.HTTP_409_CONFLICT,
             )
+        except ReservationDurationExceeded as error:
+            return Response(
+                {'detail': str(error)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except SpaceUnavailable as error:
             return Response(
                 {'detail': str(error)},
@@ -97,6 +103,11 @@ class ReservationViewSet(
             return Response(
                 {'detail': str(error)},
                 status=status.HTTP_409_CONFLICT,
+            )
+        except ReservationDurationExceeded as error:
+            return Response(
+                {'detail': str(error)},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(ReservationSerializer(reservation).data)
 

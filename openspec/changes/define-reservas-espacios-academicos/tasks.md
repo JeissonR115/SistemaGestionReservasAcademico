@@ -35,10 +35,10 @@
 
 ## 7. Gestión de cambios (Etapa 7)
 
-- [ ] 7.1 Aplicar una nueva regla de negocio mediante una propuesta OpenSpec separada, implementar sus escenarios y verificar sus pruebas sin regresiones en los requisitos existentes.
+- [x] 7.1 Aplicar una nueva regla de negocio mediante una propuesta OpenSpec separada, implementar sus escenarios y verificar sus pruebas sin regresiones en los requisitos existentes.
 
 ## 8. Cierre (Etapa 8)
 
-- [ ] 8.1 Ejecutar la suite completa de pruebas y verificar que todas las pruebas pasen.
+- [x] 8.1 Ejecutar la suite completa de pruebas y verificar que todas las pruebas pasen.
 - [ ] 8.2 Completar el README y `INFORME_FINAL.md` con configuración, uso, pruebas y limitaciones; verificar que los comandos documentados funcionen y que se informe la limitación de concurrencia de SQLite.
 - [ ] 8.3 Revisar el historial de Git para verificar la secuencia plan → especificaciones → implementación y confirmar que los cambios están descritos por sus artefactos OpenSpec.

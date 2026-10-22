@@ -13,6 +13,7 @@ from spaces.models import Space
 from .models import Reservation
 from .services import (
     ReservationConflict,
+    ReservationDurationExceeded,
     create_reservation,
     is_space_available,
 )
@@ -54,14 +55,15 @@ class ReservationRequestTests(APITestCase):
         return {**data, **overrides}
 
     def create_reservation(self, **overrides):
-        return create_reservation(
-            requester=self.requester,
-            space_id=self.space.pk,
-            purpose='Actividad académica',
-            start_at=self.start_at,
-            end_at=self.end_at,
-            **overrides,
-        )
+        reservation_data = {
+            'requester': self.requester,
+            'space_id': self.space.pk,
+            'purpose': 'Actividad académica',
+            'start_at': self.start_at,
+            'end_at': self.end_at,
+        }
+        reservation_data.update(overrides)
+        return create_reservation(**reservation_data)
 
     def test_requester_creates_pending_reservation(self):
         response = self.client.post(
@@ -78,6 +80,148 @@ class ReservationRequestTests(APITestCase):
         self.assertEqual(reservation.requester, self.requester)
         self.assertEqual(reservation.history.count(), 1)
         self.assertEqual(reservation.history.first().actor, self.requester)
+
+    def test_duration_limit_accepts_three_hours_fifty_nine_minutes_and_four_hours(self):
+        for offset, duration in enumerate(
+            (timedelta(hours=3, minutes=59), timedelta(hours=4)),
+        ):
+            with self.subTest(duration=duration):
+                start_at = self.start_at + timedelta(days=offset)
+                reservation = self.create_reservation(
+                    start_at=start_at,
+                    end_at=start_at + duration,
+                )
+                self.assertEqual(reservation.status, Reservation.Status.PENDING)
+
+    def test_duration_limit_rejects_more_than_four_hours(self):
+        with self.assertRaises(ReservationDurationExceeded):
+            self.create_reservation(
+                start_at=self.start_at,
+                end_at=self.start_at + timedelta(hours=4, minutes=1),
+            )
+
+        self.assertEqual(Reservation.objects.count(), 0)
+
+    def test_api_returns_bad_request_for_over_four_hours_for_every_role(self):
+        for user in (self.requester, self.admin):
+            with self.subTest(role=user.role):
+                self.client.force_authenticate(user=user)
+                response = self.client.post(
+                    '/api/reservations/',
+                    self.request_data(
+                        end_at=(
+                            self.start_at + timedelta(hours=4, minutes=1)
+                        ).isoformat(),
+                    ),
+                    format='json',
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('4 horas', response.data['detail'])
+                self.assertEqual(Reservation.objects.count(), 0)
+
+    def test_contiguous_same_requester_pending_reservation_counts_toward_limit(self):
+        first_end = self.start_at + timedelta(hours=2)
+        self.create_reservation(
+            start_at=self.start_at,
+            end_at=first_end,
+        )
+
+        with self.assertRaises(ReservationDurationExceeded):
+            self.create_reservation(
+                start_at=first_end,
+                end_at=first_end + timedelta(hours=2, minutes=1),
+            )
+
+    def test_contiguous_same_requester_approved_reservation_counts_toward_limit(self):
+        first_end = self.start_at + timedelta(hours=2)
+        reservation = self.create_reservation(
+            start_at=self.start_at,
+            end_at=first_end,
+        )
+        Reservation.objects.filter(pk=reservation.pk).update(
+            status=Reservation.Status.APPROVED,
+        )
+
+        with self.assertRaises(ReservationDurationExceeded):
+            self.create_reservation(
+                start_at=first_end,
+                end_at=first_end + timedelta(hours=2, minutes=1),
+            )
+
+    def test_contiguous_same_requester_reservations_allow_exactly_four_hours(self):
+        first_end = self.start_at + timedelta(hours=2)
+        self.create_reservation(
+            start_at=self.start_at,
+            end_at=first_end,
+        )
+
+        reservation = self.create_reservation(
+            start_at=first_end,
+            end_at=first_end + timedelta(hours=2),
+        )
+
+        self.assertEqual(reservation.status, Reservation.Status.PENDING)
+
+    def test_contiguous_reservation_for_another_requester_does_not_count(self):
+        first_end = self.start_at + timedelta(hours=2)
+        self.create_reservation(
+            requester=self.other_requester,
+            start_at=self.start_at,
+            end_at=first_end,
+        )
+
+        reservation = self.create_reservation(
+            start_at=first_end,
+            end_at=first_end + timedelta(hours=4),
+        )
+
+        self.assertEqual(reservation.requester, self.requester)
+
+    def test_contiguous_rejected_or_cancelled_reservations_do_not_count(self):
+        for offset, state in enumerate(
+            (Reservation.Status.REJECTED, Reservation.Status.CANCELLED),
+        ):
+            with self.subTest(state=state):
+                start_at = self.start_at + timedelta(days=offset)
+                first_end = start_at + timedelta(hours=2)
+                existing = self.create_reservation(
+                    start_at=start_at,
+                    end_at=first_end,
+                )
+                Reservation.objects.filter(pk=existing.pk).update(status=state)
+
+                reservation = self.create_reservation(
+                    start_at=first_end,
+                    end_at=first_end + timedelta(hours=4),
+                )
+
+                self.assertEqual(reservation.status, Reservation.Status.PENDING)
+
+    def test_contiguous_multi_reservation_chain_counts_toward_limit(self):
+        first_end = self.start_at + timedelta(hours=1)
+        second_end = first_end + timedelta(hours=1)
+        self.create_reservation(start_at=self.start_at, end_at=first_end)
+        self.create_reservation(start_at=first_end, end_at=second_end)
+
+        with self.assertRaises(ReservationDurationExceeded):
+            self.create_reservation(
+                start_at=second_end,
+                end_at=second_end + timedelta(hours=2, minutes=1),
+            )
+
+    def test_contiguous_reservation_after_request_counts_toward_limit(self):
+        candidate_end = self.start_at + timedelta(hours=2, minutes=1)
+        self.create_reservation(
+            start_at=candidate_end,
+            end_at=candidate_end + timedelta(hours=2),
+        )
+
+        with self.assertRaises(ReservationDurationExceeded):
+            self.create_reservation(
+                start_at=self.start_at,
+                end_at=candidate_end,
+            )
 
     def test_new_overlapping_request_is_rejected_when_pending_exists(self):
         first_response = self.client.post(
@@ -180,6 +324,42 @@ class ReservationRequestTests(APITestCase):
         self.assertEqual(reservation.status, Reservation.Status.APPROVED)
         self.assertEqual(reservation.history.count(), 2)
         self.assertEqual(reservation.history.last().actor, self.admin)
+
+    def test_approval_revalidates_duration_and_preserves_violating_request(self):
+        neighbor_end = self.start_at + timedelta(hours=2)
+        self.create_reservation(
+            start_at=self.start_at,
+            end_at=neighbor_end,
+        )
+        neighbor = Reservation.objects.get(
+            requester=self.requester,
+            start_at=self.start_at,
+        )
+        neighbor.status = Reservation.Status.APPROVED
+        neighbor.save(update_fields=('status',))
+        candidate = Reservation.objects.create(
+            requester=self.requester,
+            space=self.space,
+            purpose='Solicitud preexistente',
+            start_at=neighbor_end,
+            end_at=neighbor_end + timedelta(hours=2, minutes=1),
+            status=Reservation.Status.PENDING,
+        )
+        candidate.history.create(
+            status=Reservation.Status.PENDING,
+            actor=self.requester,
+        )
+
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post(
+            f'/api/reservations/{candidate.pk}/approve/',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('4 horas', response.data['detail'])
+        candidate.refresh_from_db()
+        self.assertEqual(candidate.status, Reservation.Status.PENDING)
+        self.assertEqual(candidate.history.count(), 1)
 
     def test_admin_cannot_approve_request_for_inactive_space(self):
         reservation = self.create_reservation()

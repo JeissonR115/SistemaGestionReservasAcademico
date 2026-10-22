@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.db import OperationalError, transaction
 from django.db.models import F
 
@@ -22,6 +24,13 @@ class ReservationOwnershipError(Exception):
     pass
 
 
+class ReservationDurationExceeded(Exception):
+    pass
+
+
+MAX_CONTIGUOUS_RESERVATION_DURATION = timedelta(hours=4)
+
+
 def overlapping_reservations(space, start_at, end_at, exclude_id=None):
     reservations = Reservation.objects.filter(
         space=space,
@@ -32,6 +41,49 @@ def overlapping_reservations(space, start_at, end_at, exclude_id=None):
     if exclude_id is not None:
         reservations = reservations.exclude(pk=exclude_id)
     return reservations
+
+
+def validate_reservation_duration(
+    *,
+    requester_id,
+    space_id,
+    start_at,
+    end_at,
+    exclude_id=None,
+):
+    if end_at - start_at > MAX_CONTIGUOUS_RESERVATION_DURATION:
+        raise ReservationDurationExceeded(
+            'La duración continua reservada por una misma persona para este '
+            'espacio no puede superar 4 horas.'
+        )
+
+    reservations = Reservation.objects.filter(
+        requester_id=requester_id,
+        space_id=space_id,
+        status__in=(Reservation.Status.PENDING, Reservation.Status.APPROVED),
+    )
+    if exclude_id is not None:
+        reservations = reservations.exclude(pk=exclude_id)
+
+    block_start = start_at
+    block_end = end_at
+    neighbors = list(reservations.values_list('start_at', 'end_at'))
+    extended = True
+    while extended:
+        extended = False
+        for neighbor_start, neighbor_end in neighbors:
+            if neighbor_end == block_start:
+                block_start = neighbor_start
+                extended = True
+            elif neighbor_start == block_end:
+                block_end = neighbor_end
+                extended = True
+
+    if block_end - block_start > MAX_CONTIGUOUS_RESERVATION_DURATION:
+        raise ReservationDurationExceeded(
+            'La duración continua reservada por una misma persona para este '
+            'espacio no puede superar 4 horas.'
+        )
 
 
 def is_space_available(space, start_at, end_at, exclude_id=None):
@@ -66,6 +118,12 @@ def create_reservation(*, requester, space_id, purpose, start_at, end_at):
                 raise ReservationConflict(
                     'El espacio ya tiene una solicitud o reserva en ese horario.'
                 )
+            validate_reservation_duration(
+                requester_id=requester.pk,
+                space_id=space.pk,
+                start_at=start_at,
+                end_at=end_at,
+            )
 
             reservation = Reservation.objects.create(
                 requester=requester,
@@ -128,6 +186,13 @@ def _transition_reservation(
                     raise ReservationConflict(
                         'El horario dejó de estar disponible.'
                     )
+                validate_reservation_duration(
+                    requester_id=reservation.requester_id,
+                    space_id=space.pk,
+                    start_at=reservation.start_at,
+                    end_at=reservation.end_at,
+                    exclude_id=reservation.pk,
+                )
 
             reservation.status = new_status
             reservation.save(update_fields=('status',))
