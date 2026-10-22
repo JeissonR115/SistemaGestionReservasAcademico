@@ -1,0 +1,173 @@
+:root {
+    color-scheme: light;
+    font-family: system-ui, sans-serif;
+    color: #172b3a;
+    background: #f2f6f8;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+}
+
+.site-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.4rem max(1.25rem, calc((100% - 68rem) / 2));
+    color: white;
+    background: #12394a;
+}
+
+.site-header h1,
+.panel h2,
+.card h3,
+.eyebrow {
+    margin: 0;
+}
+
+.eyebrow {
+    color: #b5dce5;
+    font-size: .8rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+}
+
+.user-menu,
+.form-actions,
+.card-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .75rem;
+}
+
+.page {
+    width: min(68rem, calc(100% - 2rem));
+    margin: 1.5rem auto 4rem;
+}
+
+.intro,
+.feedback {
+    margin: 0 0 1rem;
+}
+
+.feedback:empty {
+    display: none;
+}
+
+.feedback,
+.inline-result {
+    color: #155c40;
+}
+
+.feedback.error,
+.inline-result.error {
+    color: #9f2828;
+}
+
+.panel {
+    margin: 1rem 0;
+    padding: 1.25rem;
+    border: 1px solid #d8e2e7;
+    border-radius: .75rem;
+    background: white;
+    box-shadow: 0 2px 8px #173d4a0d;
+}
+
+.panel h2 {
+    margin-bottom: 1rem;
+    font-size: 1.2rem;
+}
+
+.login-panel {
+    max-width: 32rem;
+    margin: 3rem auto;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 1rem;
+}
+
+label {
+    display: grid;
+    gap: .4rem;
+    font-weight: 600;
+}
+
+input,
+select {
+    width: 100%;
+    min-height: 2.7rem;
+    padding: .55rem .65rem;
+    border: 1px solid #aabcc5;
+    border-radius: .35rem;
+    font: inherit;
+}
+
+.button {
+    min-height: 2.6rem;
+    padding: .55rem .9rem;
+    border: 0;
+    border-radius: .4rem;
+    color: white;
+    background: #146b70;
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+.button:hover {
+    background: #0e5358;
+}
+
+.button-secondary {
+    color: #173d4a;
+    background: #e2eff1;
+}
+
+.button-secondary:hover {
+    background: #cfe3e6;
+}
+
+.button-danger {
+    background: #9f3535;
+}
+
+.card-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: .75rem;
+}
+
+.card {
+    padding: .9rem;
+    border: 1px solid #d8e2e7;
+    border-radius: .55rem;
+}
+
+.card p {
+    margin: .45rem 0;
+}
+
+.card-actions {
+    margin-top: .8rem;
+}
+
+.inline-result {
+    align-self: center;
+    margin: 0;
+}
+
+@media (max-width: 34rem) {
+    .site-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

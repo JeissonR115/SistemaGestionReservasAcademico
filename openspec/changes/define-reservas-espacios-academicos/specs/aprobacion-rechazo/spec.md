@@ -15,11 +15,11 @@ The system SHALL let an administrator view pending reservation requests with the
 - **THEN** the system SHALL show each pending request's requester, space, purpose, and requested period
 
 ### Requirement: Administrators can approve valid pending requests
-The system SHALL allow an administrator to approve a pending request only while its space is active and the request remains valid and non-conflicting.
+The system SHALL allow an administrator to approve a pending request only while its space is active and the request remains valid and non-conflicting with other pending or approved reservations; the request being reviewed SHALL be excluded from that conflict check.
 
 #### Scenario: Administrator approves a valid request
-- **GIVEN** a pending request is for an active space and its requested period remains valid and available
-- **WHEN** an administrator approves a pending request for an active space whose requested period remains valid and available
+- **GIVEN** a pending request is for an active space and its requested period does not overlap any other pending or approved reservation
+- **WHEN** an administrator approves that request and the conflict check excludes the request being reviewed
 - **THEN** the system SHALL change the request status to approved and record the state change
 
 #### Scenario: Administrator attempts to approve a request for an inactive space

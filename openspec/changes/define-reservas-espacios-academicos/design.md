@@ -39,7 +39,7 @@ Represent a reservation period as `[start, end)`, reject periods where `start >=
 
 ### Make conflict validation and creation atomic
 
-Perform the final conflict check and persistence as one transaction-protected service operation; a pre-flight availability display is informational and is not sufficient to reserve a slot. If competing requests overlap, at most one may become pending and the other receives a conflict result. SQLite's locking behavior may limit throughput, but silently accepting overlapping reservations is not an acceptable fallback.
+Perform the final conflict check and persistence as one transaction-protected service operation; a pre-flight availability display is informational and is not sufficient to reserve a slot. During approval, exclude the request being reviewed from the conflict query while retaining all other pending and approved requests as blockers. If competing requests overlap, at most one may become pending and the other receives a conflict result. SQLite's locking behavior may limit throughput, but silently accepting overlapping reservations is not an acceptable fallback.
 
 ## Risks / Trade-offs
 
