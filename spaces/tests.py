@@ -56,6 +56,16 @@ class SpaceApiTests(APITestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn('capacity', response.data)
 
+    def test_space_rejects_missing_required_values(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post('/api/spaces/', {}, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('name', response.data)
+        self.assertIn('space_type', response.data)
+        self.assertIn('capacity', response.data)
+
     def test_admin_updates_and_deactivates_space(self):
         self.client.force_authenticate(user=self.admin)
 
@@ -72,6 +82,30 @@ class SpaceApiTests(APITestCase):
         )
         self.assertEqual(response.status_code, 204)
         self.active_space.refresh_from_db()
+        self.assertFalse(self.active_space.is_active)
+
+    def test_admin_updates_space_name_type_capacity_and_active_status(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.patch(
+            f'/api/spaces/{self.active_space.pk}/',
+            {
+                'name': 'Laboratorio Renovado',
+                'space_type': 'Laboratorio de ciencias',
+                'capacity': 35,
+                'is_active': False,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.active_space.refresh_from_db()
+        self.assertEqual(self.active_space.name, 'Laboratorio Renovado')
+        self.assertEqual(
+            self.active_space.space_type,
+            'Laboratorio de ciencias',
+        )
+        self.assertEqual(self.active_space.capacity, 35)
         self.assertFalse(self.active_space.is_active)
 
     def test_requester_sees_active_space_details(self):

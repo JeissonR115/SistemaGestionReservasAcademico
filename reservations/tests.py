@@ -256,10 +256,43 @@ class ReservationRequestTests(APITestCase):
         self.assertIn('end_at', response.data)
         self.assertEqual(Reservation.objects.count(), 0)
 
+    def test_request_rejects_each_missing_required_field(self):
+        complete_data = self.request_data()
+
+        for field in ('space', 'purpose', 'start_at', 'end_at'):
+            with self.subTest(missing_field=field):
+                data = {
+                    key: value
+                    for key, value in complete_data.items()
+                    if key != field
+                }
+                response = self.client.post(
+                    '/api/reservations/',
+                    data,
+                    format='json',
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(field, response.data)
+                self.assertEqual(Reservation.objects.count(), 0)
+
     def test_request_rejects_empty_or_reversed_period(self):
         response = self.client.post(
             '/api/reservations/',
             self.request_data(end_at=self.start_at.isoformat()),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('end_at', response.data)
+        self.assertEqual(Reservation.objects.count(), 0)
+
+    def test_request_rejects_end_before_start(self):
+        response = self.client.post(
+            '/api/reservations/',
+            self.request_data(
+                end_at=(self.start_at - timedelta(minutes=1)).isoformat(),
+            ),
             format='json',
         )
 
@@ -295,6 +328,16 @@ class ReservationRequestTests(APITestCase):
         self.assertEqual(response.data['purpose'], reservation.purpose)
         self.assertEqual(response.data['status'], Reservation.Status.PENDING)
 
+    def test_requester_cannot_view_another_users_reservation(self):
+        reservation = self.create_reservation(requester=self.other_requester)
+
+        response = self.client.get(f'/api/reservations/{reservation.pk}/')
+
+        self.assertEqual(response.status_code, 404)
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.requester, self.other_requester)
+        self.assertEqual(reservation.status, Reservation.Status.PENDING)
+
     def test_admin_lists_pending_requests_with_review_details(self):
         reservation = self.create_reservation()
         self.client.force_authenticate(user=self.admin)
@@ -324,6 +367,38 @@ class ReservationRequestTests(APITestCase):
         self.assertEqual(reservation.status, Reservation.Status.APPROVED)
         self.assertEqual(reservation.history.count(), 2)
         self.assertEqual(reservation.history.last().actor, self.admin)
+
+    def test_admin_approval_excludes_candidate_id_at_exactly_four_contiguous_hours(self):
+        neighbor_end = self.start_at + timedelta(hours=2)
+        neighbor = self.create_reservation(
+            start_at=self.start_at,
+            end_at=neighbor_end,
+        )
+        Reservation.objects.filter(pk=neighbor.pk).update(
+            status=Reservation.Status.APPROVED,
+        )
+        candidate = Reservation.objects.create(
+            requester=self.requester,
+            space=self.space,
+            purpose='Continuación de actividad académica',
+            start_at=neighbor_end,
+            end_at=neighbor_end + timedelta(hours=2),
+            status=Reservation.Status.PENDING,
+        )
+        candidate.history.create(
+            status=Reservation.Status.PENDING,
+            actor=self.requester,
+        )
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post(
+            f'/api/reservations/{candidate.pk}/approve/',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        candidate.refresh_from_db()
+        self.assertEqual(candidate.status, Reservation.Status.APPROVED)
+        self.assertEqual(candidate.history.count(), 2)
 
     def test_approval_revalidates_duration_and_preserves_violating_request(self):
         neighbor_end = self.start_at + timedelta(hours=2)
@@ -564,6 +639,30 @@ class ReservationRequestTests(APITestCase):
             )
         )
 
+    def test_approved_request_blocks_availability_and_new_overlapping_request(self):
+        reservation = self.create_reservation()
+        Reservation.objects.filter(pk=reservation.pk).update(
+            status=Reservation.Status.APPROVED,
+        )
+
+        availability = self.client.get(
+            f'/api/spaces/{self.space.pk}/availability/',
+            {
+                'start_at': self.start_at.isoformat(),
+                'end_at': self.end_at.isoformat(),
+            },
+        )
+        response = self.client.post(
+            '/api/reservations/',
+            self.request_data(),
+            format='json',
+        )
+
+        self.assertEqual(availability.status_code, 200)
+        self.assertFalse(availability.data['available'])
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(Reservation.objects.count(), 1)
+
     def test_rejected_and_cancelled_requests_do_not_block_period(self):
         reservation = self.create_reservation()
         Reservation.objects.filter(pk=reservation.pk).update(
@@ -590,6 +689,22 @@ class ReservationRequestTests(APITestCase):
                 self.end_at + timedelta(hours=1),
             )
         )
+
+    def test_availability_endpoint_reports_exactly_adjacent_period_as_available(self):
+        self.create_reservation()
+
+        response = self.client.get(
+            f'/api/spaces/{self.space.pk}/availability/',
+            {
+                'start_at': self.end_at.isoformat(),
+                'end_at': (
+                    self.end_at + timedelta(hours=1)
+                ).isoformat(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data['available'])
 
     def test_intersecting_periods_overlap(self):
         self.create_reservation()

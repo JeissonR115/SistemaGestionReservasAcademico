@@ -39,6 +39,15 @@ class AccountApiTests(APITestCase):
         self.assertEqual(response.status_code, 400)
         self.assertNotIn('sessionid', self.client.cookies)
 
+    def test_active_user_sign_in_with_invalid_credentials_is_rejected(self):
+        response = self.client.post('/api/auth/login/', {
+            'username': 'requester',
+            'password': 'WrongPass123!',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn('sessionid', self.client.cookies)
+
     def test_authenticated_user_signs_out(self):
         self.client.post('/api/auth/login/', {
             'username': 'requester',
@@ -94,6 +103,15 @@ class AccountApiTests(APITestCase):
         user.refresh_from_db()
         self.assertFalse(user.is_active)
 
+        self.client.force_authenticate(user=None)
+        sign_in = self.client.post('/api/auth/login/', {
+            'username': 'new-user',
+            'password': 'NewPass123!',
+        })
+
+        self.assertEqual(sign_in.status_code, 400)
+        self.assertNotIn('sessionid', self.client.cookies)
+
     def test_admin_can_assign_valid_role(self):
         self.client.force_authenticate(user=self.admin)
 
@@ -105,6 +123,18 @@ class AccountApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.requester.refresh_from_db()
         self.assertEqual(self.requester.role, User.Role.ADMINISTRATOR)
+
+    def test_admin_cannot_update_user_with_invalid_role(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.patch(
+            f'/api/users/{self.requester.pk}/',
+            {'role': 'invalid-role'},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.requester.refresh_from_db()
+        self.assertEqual(self.requester.role, User.Role.REQUESTER)
 
     def test_superuser_is_created_with_administrator_role(self):
         superuser = User.objects.create_superuser(
@@ -125,6 +155,17 @@ class AccountApiTests(APITestCase):
         })
 
         self.assertEqual(response.status_code, 400)
+
+    def test_account_created_without_role_is_rejected(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post('/api/users/', {
+            'username': 'role-less-user',
+            'password': 'ValidPass123!',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(username='role-less-user').exists())
 
     def test_requester_cannot_perform_administrative_actions(self):
         self.client.force_authenticate(user=self.requester)
